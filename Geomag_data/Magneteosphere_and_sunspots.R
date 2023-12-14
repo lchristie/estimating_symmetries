@@ -3,7 +3,13 @@ library(MASS)
 library(np)
 library(ds4psy)
 library(ggplot2)
+library(sphereplot)
 world <- map_data("world")
+library(mapproj)
+library(rotasym)
+library( dgof )
+library(fields)
+
 
 #### Helper Functions
 
@@ -79,19 +85,38 @@ rotation_matrix <- function( angle, axis ) {
 }
 
 sample_G <- function( index ) {
-  if (index < 18) {
+  if (index < 16) {
     # Uniform angle rotations around icosahedral axis
-    angle <- rnorm(1, 0, 0.2)
+    # angle <- rnorm( 1, 0, 0.05 )
+    angle <- runif( 1, 0, 2 * pi )
     axis <- icosahedron[index, ]
-    return( rotation_matrix( 2 * pi * angle , axis ) )
+    return( rotation_matrix( angle , axis ) )
   }
-  if (index == 18) {
+  if (index == 16) {
     # Samples from SO(3)
     angle <- runif( 1, min = 0, max = pi)
     axis <- rnorm(3)
     axis <- axis / sqrt( sum( axis^2 ) )
     return( rotation_matrix( angle , axis ) )
   }
+  if (index > 16) {
+    axis_ind <- (index - 1) %% 15
+    if (axis_ind <- 0) { axis_ind <- 15 }
+    angle_order <- 1 + floor( (index - 1) / 15)
+    axis <- icosahedron[axis_ind, ]
+    angle <- sample( angle_order, 1 )
+    return( rotation_matrix( 2 * pi * angle / angle_order , axis ) )
+  }
+}
+
+random_transforms_X <- function ( m_X, G_ind, G_action ) {
+  n <- dim(m_X)[1]
+  X_out <- matrix( 0, nrow = n, ncol = dim(m_X)[2] ) 
+  for (i in 1:n) {
+    g_i <- sample_G( G_ind )
+    X_out[i,] <- array( G_action(g_i, m_X[i,]) )
+  }
+  return( X_out )
 }
 
 find_MSE_np <- function (X, Y, X.test, Y.test, actual = FALSE) {
@@ -122,10 +147,30 @@ find_MSE_SO3 <- function (X, Y, X.test, Y.test, actual = FALSE) {
   else { return( mean( (fits - Y.test)^2 ) ) }
 }
 
-find_MSE_SL3 <- function (X, Y, X.test, Y.test, actual = FALSE) {
-  fits <- mean( Y )
-  if (actual) { return( mean( (fits - f(X.test))^2 ) ) }
-  else { return( mean( (fits - Y.test)^2 ) ) }
+m_dist <- function ( a_vec, another_vec ) {
+  return( sqrt( sum( (a_vec - another_vec)^2 ) ) )
+}
+
+local_average <- function( X, all_data, m_bandwidth ) {
+  ## This function averages over the outputs in all_data that have inputs within $h$ of the points in $X$
+  
+  n <- dim(X)[1]
+  m <- dim( all_data )[1]
+  output <- rep(0, n)
+  
+  for (i in 1:n) {
+    val <- 0
+    count <- 0
+    for (j in 1:m) {
+      if ( m_dist( X[i,], all_data[j,-4] ) < m_bandwidth ) {
+        val <- val + all_data[j, dim( all_data )[2]]
+        count <- count + 1
+      }
+    }
+    output[i] <- val / count
+    # print( paste( output[i], " from ", count, " data points." ) )
+  }
+  return( output )
 }
 
 
@@ -176,6 +221,35 @@ PermVarTest <- function( m_X, m_Y, d_X, norm_Y, m_V_Cal, m_q, m_G_index, m_m, m_
   return(p_val)
 }
 
+PermVarTest_2 <- function ( m_X, m_Y, m_q, m_G_index, m_B, m_g_dot, plot_flag = FALSE) {
+  n <- dim(m_X)[1]
+  
+  ## Baseline Stat From Original Data
+  dist_mat_orig <- pdist( m_X )
+  dif_mat_orig <- pdist( m_Y )
+  orig_ratios <- dif_mat_orig[which(dist_mat_orig != 0)] / dist_mat_orig[which(dist_mat_orig != 0)]
+  A_0 <- quantile(orig_ratios, probs = m_q, type = 1, names = FALSE)
+  if (plot_flag) {
+    plot( dist_mat_orig, dif_mat_orig, type = "p", pch = 4)
+    lines( c(0, 100), c(0, 100 * A_0) )
+  }
+  ## Permutations, Interchangable under H_0
+  As <- rep(0, m_B)
+  
+  for (i in 1:m_B) {
+    new_X <- random_transforms_X( m_X, m_G_index, m_g_dot )
+    dist_mat <- pdist( new_X )
+    ratios <- dif_mat_orig[which(dist_mat != 0)] / dist_mat[which(dist_mat != 0)]
+    As[i] <- quantile(ratios, probs = m_q, type = 1, names = FALSE)
+    if (plot_flag) { lines( c(0, 100), c(0, 100 * As[i]), col = "red", lty = 2) }
+  }
+  if (plot_flag) { lines( c(0, 100), c(0, 100 * A_0) ) }
+  
+  ## Under the alternative we would expect larger ratios for the permutations
+  p_val <- mean( I(As <= A_0) )
+  return( p_val )
+}
+
 
 #### Set-up Pars
 
@@ -199,13 +273,8 @@ a_p_t <- function ( m_thres ) {
   return( 2 * exp( - (m_thres / sigma) ^2 / 4) / ( (m_thres / sigma) * sqrt(2 * pi )) )
 }
 
-## Source British Geological Survey
-geo_dip_pole <- c(86.49, 162.76)
-geo_mag_pole <- c(80.65, -72.68)
-
-
 gold_ratio <- ( 1 + sqrt(5) ) / 2
-icosahedron <- matrix( 0 , nrow = 17, ncol = 3)
+icosahedron <- matrix( 0 , nrow = 15, ncol = 3)
 icosahedron[1, ] <- c(0, 1, gold_ratio)
 icosahedron[2, ] <- c(0, 1, -gold_ratio)
 icosahedron[3, ] <- c(1, gold_ratio, 0)
@@ -219,13 +288,14 @@ icosahedron[10, ] <- c( -gold_ratio, 1, 0)
 icosahedron[11, ] <- c( 0, gold_ratio, 1)
 icosahedron[12, ] <- c( 0, gold_ratio, -1)
 icosahedron <- icosahedron / sqrt( 1 + gold_ratio^2 )
-icosahedron[13,] <- c(0,0,1)
+icosahedron[13,] <- c(1,0,0)
 icosahedron[14,] <- c(0,1,0)
-icosahedron[15,] <- c(1,0,0)
+icosahedron[15,] <- c(0,0,1)
 
-#### Testing For Symmetries of Magnetosphere Data
 
-## Load data
+
+#### Symmetries of Magnetosphere Data
+ 
 m_data <- read.csv("SWARM_DATA.csv", header = TRUE)
 
 m_data <- cbind( m_data, cos( m_data[,"LAT"] * pi / 180 ) * cos (m_data[,"LONG"] * pi / 180 ) )
@@ -241,15 +311,63 @@ for (i in 1:dim(icosahedron)[1]) {
   colnames(m_data)[length(colnames(m_data))] <- paste0( "proj_coord", i) 
 }
 
-m_data_dense <- m_data[which(m_data$LAT > 0 & m_data$LONG > 0), ] ## Data over Eurasia
-m_data_sparse <- m_data[which(m_data$LAT > 0 & m_data$LONG < 0), ] ## Data over America
-
 set.seed(2021)
-num_samples <- 200
-inds <- sample( 1:(dim(m_data_dense)[1] * 1), num_samples, replace = FALSE)
-inds_sparse <- sample( 1:(dim(m_data_sparse)[1] * 1), num_samples / 10, replace = FALSE)
+num_samples <- 1000
+inds <- sample( 1:(dim(m_data)[1] * 1), num_samples, replace = FALSE)
 
-m_data_used <- rbind( m_data_dense[inds,], m_data_sparse[inds_sparse, ])
+m_data_used <- m_data[inds,]
+
+## Symmetry Tests
+
+a_q <- 1
+a_B <- 200
+alpha <- 0.05
+set.seed(2021)
+
+X <- as.matrix( cbind( m_data_used["x_coord"], m_data_used["y_coord"], m_data_used["z_coord"] ) )
+F_NT_data <- t(t(as.matrix( m_data_used["F_NT"])))
+
+p_vals_F <- matrix(0, nrow = 1, ncol = 15)
+for (i in 1:15) {
+  p_vals_F[i] <- PermVarTest_2(X, F_NT_data, a_q, i, a_B, g_dot, plot_flag = FALSE)
+  print( paste( "Group index:", ind, "p value:", p_vals_F[i] ) )
+}
+
+I(p_vals_F > alpha)
+
+
+## QQ Plots
+
+orig_dist_mat <- pdist( X )
+
+set.seed(1010)
+par( mfrow = c(3,5))
+
+for (ind in 1:15) {
+  new_X <- random_transforms_X( X, ind, g_dot )
+  new_dist_mat <- pdist( new_X )
+  
+  title.as <- paste( "Group Number:", ind) 
+  
+  plot( sort(orig_dist_mat), sort(new_dist_mat), type = "l", xlab = "", ylab = "", main = title.as )
+  lines( c(0,4), c(0,4) , col = "red")
+  lines( sort(orig_dist_mat), sort(new_dist_mat) )
+  
+  a <- ks.test( sort(orig_dist_mat), sort(new_dist_mat))
+  
+  mtext(paste( "p value = ", round( a$p.value, digits = 4 ) ), side=3)  
+}
+
+## Plots of the Magnetic Field
+
+data_sphere <- car2sph( X[,1], X[,2], X[,3], deg = FALSE)
+nColors <- 64
+colindex <- as.integer(cut(m_data_used[,7],breaks=nColors))
+# col_index_sample <- as.integer(cut(all_data[m_inds,4],breaks=nColors))
+# cols <- two.colors(n=nColors, start="green", end="midnightblue", middle="lightseagreen", alpha=1.0)
+rgl.sphgrid(radaxis = FALSE)
+rgl.sphpoints(data_sphere[,"long"], data_sphere[,"lat"], radius = 1, deg = FALSE, col = tim.colors(nColors)[colindex] )
+
 
 m <- ggplot(m_data_used, aes(LONG, LAT, colour = F_NT)  ) +
   labs( title = "Locations of Geomagnetic Intensity Measurements" ) +
@@ -262,82 +380,81 @@ m + geom_map( data = world, map = world,
   geom_point()
 
 
-#### Symmetry Tests
 
-a_q <- 0.95
-m <- 3000
-a_B <- 200
+
+
+
+#### Symmetries of Sunspots
+
+set.seed(1010)
+data("sunspots_births")
+sunspots_births$X <-
+  cbind(cos(sunspots_births$phi) * cos(sunspots_births$theta),
+        cos(sunspots_births$phi) * sin(sunspots_births$theta),
+        sin(sunspots_births$phi))
+
+# head(sunspots_births$X)
+m_cycle = 23
+num_samps <- 250
+inds <- which( sunspots_births$cycle == m_cycle, arr.ind = TRUE )
+all_data <- cbind( sunspots_births$X[inds, ], sunspots_births$date[inds] )
+m_inds <- sample( dim(all_data)[1], num_samps, replace = FALSE )
+m_data <- all_data[m_inds, ]
+
+m_data <- cbind( m_data, local_average( m_data[, -4], all_data, 0.2 ) )
+plot( data_sphere[m_inds,"lat"], m_data[,5],  #col = tim.colors(nColors)[col_index_sample],
+      pch = 4, xlab = "Latitude", ylab = "Time of Sunspot Occurance", yaxt="n")
+
+
+a_q <- 1
+a_B <- 100
 alpha <- 0.05
+num_syms <- 15
+
 set.seed(2020)
 
-X <- as.matrix( cbind( m_data_used["x_coord"], m_data_used["y_coord"], m_data_used["z_coord"] ) )
-F_NT_data <- t(t(as.matrix( m_data_used["F_NT"])))
+p_vals_F_2 <- matrix(0, nrow = 1, ncol = num_syms)
 
-p_vals_F <- matrix(0, nrow = 1, ncol = 18)
-for (i in 1:18) {
-  p_vals_F[i] <- PermVarTest(X, F_NT_data, d_X, norm_Y, a_V, a_q, i, m, a_B, g_dot)
-  print( p_vals_F[i] )
+for (ind in 1:num_syms) {
+  p_vals_F_2[ind] <- PermVarTest_2( m_data[,1:3] , m_data[,5], a_q, ind, a_B, g_dot, plot_flag = FALSE)
 }
 
-I(p_vals_F > alpha)
+p_vals_F_2
+I(p_vals_F_2 >= alpha)
+
+## Plots
+
+data_sphere <- car2sph( m_data[,1], m_data[,2], m_data[,3], deg = FALSE)
+nColors <- 64
+colindex <- as.integer(cut(m_data[,5],breaks=nColors))
+col_index_sample <- as.integer(cut(all_data[m_inds,4],breaks=nColors))
+# cols <- two.colors(n=nColors, start="green", end="midnightblue", middle="lightseagreen", alpha=1.0)
+rgl.sphgrid(radaxis = FALSE)
+rgl.sphpoints(data_sphere[,"long"], data_sphere[,"lat"], radius = 1, deg = FALSE, col = tim.colors(nColors)[colindex] )
+
+plot( data_sphere[m_inds,"lat"], all_data[m_inds,4],  col = tim.colors(nColors)[col_index_sample], pch = 4, xlab = "Latitude", ylab = "Time of Sunspot Occurance", yaxt="n")
 
 
-#### Modelling
 
-ref_grid <- read.csv("reference_EMF.csv", header = TRUE)
-ref_grid <- cbind( ref_grid, cos( ref_grid[,"LAT"] * pi / 180 ) * cos (ref_grid[,"LONG"] * pi / 180 ) )
-ref_grid <- cbind( ref_grid, cos( ref_grid[,"LAT"] * pi / 180 ) * sin (ref_grid[,"LONG"] * pi / 180 ) )
-ref_grid <- cbind( ref_grid, sin( ref_grid[,"LAT"] * pi / 180 )  )
-colnames(ref_grid) <- c(  colnames(ref_grid)[1:6],  "x_coord", "y_coord", "z_coord")
-for (i in 1:15) {
-  ref_grid <- cbind( ref_grid, acos( icosahedron[i,1] * ref_grid["x_coord"] + 
-                                       icosahedron[i,2] * ref_grid["y_coord"] + 
-                                       icosahedron[i,3] * ref_grid["z_coord"] ) ) 
-  colnames(ref_grid)[9+i] <- paste0( "proj_coord", i) 
-}
+#### QQ Plots
 
-bw_F <- npregbw( F_NT ~ LAT + LONG, data = m_data_used, regtype = "ll", bwtype = "adaptive_nn")
-f_F_hat <- npreg( bw_F, data = m_data_used )
-fits_F <- predict( f_F_hat, data = m_data_used, newdata = ref_grid )
+orig_X <- m_data[,1:3]
+orig_dist_mat <- pdist( orig_X )
 
-bw_F_S13 <- npregbw( F_NT ~ proj_coord13, data = m_data_used, regtype = "ll", bwtype = "adaptive_nn" )
-f_F_S_hat13 <- npreg( bw_F_S13, data = m_data_used )
-fits_F_S13 <- predict( f_F_S_hat13, data = m_data_used, newdata = ref_grid )
+set.seed(1010)
+par( mfrow = c(3,5))
 
-ref_grid <- cbind( ref_grid, fits_F, fits_F_S13 )
-
-errors_LLE_eurasia <- mean( (ref_grid[which( (ref_grid$LAT > 0 ) & (ref_grid$LONG > 0 ) ), "F_NT"] - 
-                       ref_grid[which( (ref_grid$LAT > 0 ) &  (ref_grid$LONG > 0 )), "fits_F"] )^2 ) 
-errors_LLE_eurasia
-errors_SLLE_eurasia <- mean( (ref_grid[which( (ref_grid$LAT > 0 ) & (ref_grid$LONG > 0 ) ), "F_NT"] - 
-                       ref_grid[which( (ref_grid$LAT > 0 ) &  (ref_grid$LONG > 0 )), "fits_F_S13"] )^2 ) 
-errors_SLLE_eurasia
-errors_SLLE_eurasia / errors_LLE_eurasia
-
-errors_LLE_north <- mean( (ref_grid[which( (ref_grid$LAT > 0 ) ), "F_NT"] - 
-                               ref_grid[which( (ref_grid$LAT > 0 ) ), "fits_F"] )^2 ) 
-errors_LLE_north
-errors_SLLE_north <- mean( (ref_grid[which( (ref_grid$LAT > 0 )  ), "F_NT"] - 
-                                ref_grid[which( (ref_grid$LAT > 0 )), "fits_F_S13"] )^2 ) 
-errors_SLLE_north
-errors_SLLE_north / errors_LLE_north
-
-errors_LLE <- mean( (ref_grid[, "F_NT"] - ref_grid[, "fits_F"] )^2 ) 
-errors_LLE
-
-errors_SLLE13 <- mean( (ref_grid[, "F_NT"] - ref_grid[, "fits_F_S13"] )^2 ) 
-errors_SLLE13
-
-
-m <- ggplot(ref_grid[which(ref_grid$LAT > 0 ), ] , aes(LONG, LAT, z = fits_F) ) +
-  # labs( title = "Estimated Intensity Contours" ) +
-  scale_x_continuous( "Longitude", breaks = c(-180, -150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180 ), limits = c(-180,180) ) +
-  scale_y_continuous( "Latitude", breaks = c(-90, -60, -30, 0, 30, 60, 90), limits = c(0,90) ) +
-  theme_bw()
-m + geom_map( data = world, map = world,
-              aes(long, lat, z = 1, map_id = region),
-              color = "black", fill = "lightgray", size = 0.1) +
-  # geom_point() 
-  # scale_colour_gradient2()
-  geom_contour()
+for (ind in 1:15) {
+  new_X <- random_transforms_X( orig_X, ind, g_dot )
+  new_dist_mat <- pdist( new_X )
   
+  title.as <- paste( "Group Number:", ind) 
+  
+  plot( sort(orig_dist_mat), sort(new_dist_mat), type = "l", xlab = "", ylab = "", main = title.as )
+  lines( c(0,4), c(0,4) , col = "red")
+  lines( sort(orig_dist_mat), sort(new_dist_mat) )
+
+  a <- ks.test( sort(orig_dist_mat), sort(new_dist_mat))
+
+  mtext(paste( "p value = ", round( a$p.value, digits = 4 ) ), side=3)  
+}
