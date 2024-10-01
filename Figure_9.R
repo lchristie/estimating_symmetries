@@ -43,7 +43,7 @@ col_index_sample <- as.integer(cut(all_data[m_inds,4],breaks=nColors))
 rgl.sphgrid(radaxis = FALSE)
 rgl.sphpoints(data_sphere[,"long"], data_sphere[,"lat"], radius = 1, deg = FALSE, col = tim.colors(nColors)[colindex] )
 
-plot( data_sphere[m_inds,"lat"], all_data[m_inds,4],  col = tim.colors(nColors)[col_index_sample], pch = 4, xlab = "Latitude", ylab = "Time of Sunspot Occurance", yaxt="n")
+plot( data_sphere[,"lat"], all_data[m_inds,4],  col = tim.colors(nColors)[col_index_sample], pch = 4, xlab = "Latitude", ylab = "Time of Sunspot Occurance", yaxt="n")
 
 
 
