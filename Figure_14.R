@@ -38,7 +38,7 @@ m_data <- cbind( m_data, local_average( m_data[, -4], all_data, 0.1 ) )
 
 
 orig_X <- m_data[,1:3]
-orig_dist_mat <- pdist( orig_X )
+orig_dist_mat <- acos(1 - 0.5 * pdist( orig_X )^2 )
 
 set.seed(1010)
 par( mfrow = c(3,5))
@@ -46,7 +46,7 @@ par( mfrow = c(3,5))
 
 for (ind in 1:15) {
   new_X <- random_transforms_X( orig_X, ico_syms_by_ind[[ind]] , g_dot )
-  new_dist_mat <- pdist( new_X )
+  new_dist_mat <- acos( 1 - 0.5 * pdist( new_X ) )
   
   title.as <- paste( "Group Number:", ind) 
   
