@@ -49,7 +49,7 @@ m_data_used <- as.matrix( m_data[inds,8:10] )
 
 ## QQ Plots
 
-orig_dist_mat <- pdist( m_data_used )
+orig_dist_mat <- acos( 1 - 0.5 * pdist( m_data_used )^2 )
 
 set.seed(1010)
 par( mfrow = c(3,5))
@@ -57,7 +57,7 @@ par( mfrow = c(3,5))
 
 for (ind in 1:15) {
   new_X <- random_transforms_X( m_data_used, ico_syms_by_ind[[ind]], g_dot )
-  new_dist_mat <- pdist( new_X )
+  new_dist_mat <- acos( 1 - 0.5 * pdist( new_X )^2 )
   
   title.as <- paste( "Group Number:", ind) 
   
