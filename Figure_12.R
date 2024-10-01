@@ -7,8 +7,8 @@ source("ico_syms.R")
 source("test_function.R")
 
 
-scenario_2_perm_varying_K <- read.csv("scenario_2_LCE_perms_varying_K_2.csv")[,-1]
-scenario_4_perm_varying_K <- read.csv("scenario_4_LCE_perms_varying_K_2.csv")[,-1]
+scenario_2_perm_varying_K <- read.csv("sims/scenario_2_LCE_perms_varying_K_2.csv")[,-1]
+scenario_4_perm_varying_K <- read.csv("sims/scenario_4_LCE_perms_varying_K_2.csv")[,-1]
 
 
 num_sims <- 100
