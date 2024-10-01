@@ -3,7 +3,7 @@ library(MASS)
 library(np)
 library(ds4psy)
 library(ggplot2)
-library(sphereplot)
+# library(sphereplot)
 world <- map_data("world")
 library(mapproj)
 library(rotasym)
@@ -24,9 +24,8 @@ sunspots_births$X <-
 
 set.seed(1011)
 
-num_samps <- 2000
-a_B <- 400
-a_lambda <- -0.1
+num_samps <- 250
+
 
 m_cycle <- 23
 inds <- which( sunspots_births$cycle == m_cycle, arr.ind = TRUE )
