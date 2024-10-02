@@ -8,14 +8,6 @@ source("Example_6.1_Helpers.R")
 
 alpha <- 0.05
 ns <- c(20,30,40,50,60,70,80,90,100,125,150,200,300,400,500,750)
-
-mu_X <- rep(0, dimension)
-Sigma_X = diag(rep(2, dimension))
-
-sigma <- 0.05
-
-a_B <- 100
-
 num_sims <- 200
 
 
